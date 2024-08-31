@@ -23,7 +23,7 @@ def random_circular_shift_generator(df):
         shift = np.random.randint(n)
         shifted_data = np.roll(data, shift)
         yield pd.DataFrame({time_column: df[time_column], data_column: shifted_data})
-
+# generate and record each shift to reduce the RAM burden
 def save_generated_data_to_temp_file(shifted_series_generator, temp_file_path, n_shifts):
     with open(temp_file_path, mode='w', newline='') as file:
         writer = None
