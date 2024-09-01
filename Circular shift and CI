@@ -1,92 +1,83 @@
-#%%
-import pandas as pd
-import numpy as np
 import os
-import matplotlib.pyplot as plt
-#%%
+import numpy as np
+import pandas as pd
+
+# Treating the data as a time series, we can generate random circular shifts of the data. 
 file_path = r"#your file path"
 time_column = 'Shell radius'
 data_column = '# Intersections'
-#%%
+
 def read_data_from_excel(file_path, time_column, data_column):
-    # Read the Excel file into a DataFrame
-    df = pd.read_excel(file_path)
-    # Ensure the DataFrame has the required columns
-    if time_column not in df.columns or data_column not in df.columns:
-        raise ValueError(f"Columns {time_column} and {data_column} must be present in the Excel file.")
-    return df[[time_column, data_column]]
-
-def random_circular_shift_generator(df):
-    data = df[data_column].values
-    n = len(data)
-    while True:
-        shift = np.random.randint(n)
-        shifted_data = np.roll(data, shift)
-        yield pd.DataFrame({time_column: df[time_column], data_column: shifted_data})
-# generate and record each shift to reduce the RAM burden
-def save_generated_data_to_temp_file(shifted_series_generator, temp_file_path, n_shifts):
-    with open(temp_file_path, mode='w', newline='') as file:
-        writer = None
-        for i, shifted_data in enumerate(shifted_series_generator):
-            if i >= n_shifts:
-                break
-            shifted_data['shift_id'] = i  # Add an identifier for each shifted series
-            if writer is None:
-                shifted_data.to_csv(file, index=False, header=True)
-                writer = True
-            else:
-                shifted_data.to_csv(file, index=False, header=False)
-
-#%%
-def calculate_confidence_intervals_from_temp_file(temp_file_path, n_shifts, confidence_level=0.95):
-    df = pd.read_csv(temp_file_path)
-    data_matrix = df.pivot(index='shift_id', columns=time_column, values=data_column).values[:n_shifts]
+    if not os.path.isfile(file_path):
+        raise ValueError(f"Invalid file path: {file_path}")
     
+    df = pd.read_excel(file_path)
+    df.set_index(time_column, inplace=True)
+    df = df[[data_column]]
+    df.rename(columns={data_column: 'data'}, inplace=True)
+    return df
+
+# Create a pseudo-distribution of the data, generate random circular shifts and record the generated data at each shift to make it more RAM efficient.
+def random_circular_shift_generator(data, n_shifts=1000):
+    for shift_id in range(n_shifts):
+        shift_point = np.random.randint(0, len(data))
+        shifted_data = pd.concat([data.iloc[shift_point:], data.iloc[:shift_point]])
+        yield shift_id, shifted_data
+
+# Record the generated data first and then calculate the CI accordingly to ensure it is the same data sets used for the CI calculation and plotting. 
+# Calculate the confidence intervals incrementally by keeping track of the running percentiles, thus avoiding storing all the shifted data in memory.
+def calculate_confidence_intervals(shifted_series_generator, n_shifts, confidence_level=0.95):
+    lower_percentile = (1 - confidence_level) / 2 * 100
     upper_percentile = (1 + confidence_level) / 2 * 100
-    upper_confidence_interval = np.percentile(data_matrix, upper_percentile, axis=0)
-    time_values = df[df['shift_id'] == df['shift_id'].unique()[0]][time_column].values
-    confidence_intervals = pd.DataFrame({
-        'upper': upper_confidence_interval
-    }, index=df[time_column].unique())
+    
+    lower_confidence_interval = None
+    upper_confidence_interval = None
+    
+    # Iterate over the generator
+    for shift_id, shifted_data in shifted_series_generator:
+        data_values = shifted_data['data'].values
+        
+        if lower_confidence_interval is None:
+            lower_confidence_interval = np.percentile(data_values, lower_percentile)
+            upper_confidence_interval = np.percentile(data_values, upper_percentile)
+        else:
+            lower_confidence_interval = np.minimum(lower_confidence_interval, np.percentile(data_values, lower_percentile))
+            upper_confidence_interval = np.maximum(upper_confidence_interval, np.percentile(data_values, upper_percentile))
+    
+    return lower_confidence_interval, upper_confidence_interval
 
-    df_original = read_data_from_excel(file_path, time_column, data_column)
-    original_data = df_original[data_column].values
-    df_upper_ci = pd.DataFrame({
-        'Shell radius': time_values,
-        'Upper Confidence Interval': upper_confidence_interval
-    })
-    df_upper_ci.to_excel('upper_confidence_interval.xlsx', index=False)
-
-    # Compare original data to upper confidence interval
-    exceeds_upper_ci = original_data > upper_confidence_interval
-
-    # List the range on time_column where data_column exceeds the upper CI
-    exceeding_ranges = df_original[time_column][exceeds_upper_ci]
-
-    # Output the results
-    df_exceeding_ranges = pd.DataFrame({'Shell radius': exceeding_ranges, '# Interactions': original_data[exceeds_upper_ci]})
-    df_exceeding_ranges.to_excel('exceeding_ranges.xlsx', index=False)
-
-    return confidence_intervals
-
-#%%
 def save_temp_file_to_final_csv(temp_file_path, output_path):
     final_csv_path = os.path.join(output_path, 'generated_data.csv')
     os.rename(temp_file_path, final_csv_path)
 
-#%%
-try:
-    df = read_data_from_excel(file_path, time_column, data_column)
-    
-    # Generate the data using the generator and save to a temporary file
-    temp_file_path = r"#your file path"
-    save_generated_data_to_temp_file(random_circular_shift_generator(df), temp_file_path, n_shifts=1000)
-    
-    # Calculate confidence intervals from the temporary file
-    confidence_intervals = calculate_confidence_intervals_from_temp_file(temp_file_path, n_shifts=1000)
-    
-    # Save the temporary file to the final CSV
-    save_temp_file_to_final_csv(temp_file_path, r"#your file path")
-except Exception as e:
-    print(f"An error occurred: {e}")
-#%%
+
+
+data = read_data_from_excel(file_path, time_column, data_column)
+
+temp_file_path = 'temp_shifted_data.csv'
+with open(temp_file_path, 'w') as f:
+    f.write('shift_id,Shell radius,data\n')
+    for shift_id, shifted_data in random_circular_shift_generator(data, n_shifts=1000):
+        for index, row in shifted_data.iterrows():
+            f.write(f"{shift_id},{index},{row['data']}\n")
+
+shifted_series_generator = random_circular_shift_generator(data, n_shifts=1000)
+lower_ci, upper_ci = calculate_confidence_intervals(shifted_series_generator, n_shifts=1000)
+
+confidence_intervals = pd.DataFrame({
+    'lower': lower_ci,
+    'upper': upper_ci
+}, index=data.index)
+
+original_data = data['data'].values
+exceeds_upper_ci = original_data > upper_ci
+exceeding_ranges = data.index[exceeds_upper_ci]
+
+df_exceeding_ranges = pd.DataFrame({'Shell radius': exceeding_ranges, '# Intersections': original_data[exceeds_upper_ci]})
+df_exceeding_ranges.to_excel('exceeding_ranges.xlsx', index=False)
+
+# Save the temporary file to the final CSV file
+output_path = r"#your output path"
+save_temp_file_to_final_csv(temp_file_path, output_path)
+
+confidence_intervals
