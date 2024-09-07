@@ -1,0 +1,118 @@
+#%%
+import pandas as pd
+from scipy.stats import t, f
+import numpy as np
+from scipy.stats import pearsonr
+
+file_path = r'your file path'
+column_x = 'Branch length'
+column_y = 'Tortuosity'
+#%%
+# Calculate the Pearson correlation coefficient incrementally to avoid RAM intensive calculations
+def incremental_pearson_correlation(file_path, column_x, column_y, chunk_size=10000):
+    # Initialize variables
+    n = 0
+    sum_x = sum_y = sum_xx = sum_yy = sum_xy = 0
+
+    # Read the CSV file in chunks
+    for chunk in pd.read_csv(file_path, chunksize=chunk_size):
+        # Filter the chunk to the relevant columns
+        data = chunk[[column_x, column_y]].dropna()
+
+        # Update the sums and sums of squares
+        n += len(data)
+        sum_x += data[column_x].sum()
+        sum_y += data[column_y].sum()
+        sum_xx += (data[column_x] ** 2).sum()
+        sum_yy += (data[column_y] ** 2).sum()
+        sum_xy += (data[column_x] * data[column_y]).sum()
+
+    # Calculate the Pearson correlation coefficient
+    numerator = n * sum_xy - sum_x * sum_y
+    denominator = ((n * sum_xx - sum_x ** 2) * (n * sum_yy - sum_y ** 2)) ** 0.5
+    if denominator == 0:
+        return 0, 1, None, None, n - 2, None, None  # Return correlation 0, p-value 1, no trend line, degrees of freedom, and no F-statistic
+    r = numerator / denominator
+
+    # Calculate the t-statistic
+    t_stat = r * ((n - 2) ** 0.5) / ((1 - r ** 2) ** 0.5)
+
+    # Calculate the p-value
+    p_value = 2 * (1 - t.cdf(abs(t_stat), df=n-2))
+
+    # Calculate the slope (m) and intercept (b) for the trend line
+    slope = (n * sum_xy - sum_x * sum_y) / (n * sum_xx - sum_x ** 2)
+    intercept = (sum_y - slope * sum_x) / n
+
+    # Calculate the Coefficient of Determination (R^2)
+    r_squared = r ** 2
+
+    # Calculate the F-statistic
+    f_stat = (r_squared / (1 - r_squared)) * ((n - 2) / 1)
+
+    # Calculate the p-value for the F-statistic
+    f_p_value = 1 - f.cdf(f_stat, dfn=1, dfd=n-2)
+
+    # Degrees of freedom for F-statistic
+    dfn = 1
+    dfd = n - 2
+
+    return r, p_value, slope, intercept, dfd, f_stat, f_p_value, dfn
+
+
+correlation, p_value, slope, intercept, degrees_of_freedom, f_stat, f_p_value, dfn = incremental_pearson_correlation(file_path, column_x, column_y)
+print(f'p-value = {p_value}')
+print(f'Degrees of freedom = {degrees_of_freedom}')
+print(f'F-statistic = {f_stat}')
+print(f'F-statistic = F ({dfn}, {degrees_of_freedom}) = {f_stat:.2f}')
+
+# Check significance of correlation
+if p_value < 0.001:
+    print("The correlation is significant at the 0.001 level.")
+elif p_value < 0.01:
+    print("The correlation is significant at the 0.01 level.")
+elif p_value < 0.05:
+    print("The correlation is significant at the 0.05 level.")
+else:
+    print("The correlation is not significant.")
+
+# Check significance of F-statistic
+if f_p_value < 0.001:
+    print("The F-statistic is significant at the 0.001 level.")
+elif f_p_value < 0.01:
+    print("The F-statistic is significant at the 0.01 level.")
+elif f_p_value < 0.05:
+    print("The F-statistic is significant at the 0.05 level.")
+else:
+    print("The F-statistic is not significant.")
+
+# Print the trend line formula
+if slope is not None and intercept is not None:
+    print(f'Trend line formula: y = {slope}x + {intercept}')
+#%%
+def calculate_confidence_interval(r, n, alpha=0.05):
+    # Fisher transformation
+    fisher_z = np.arctanh(r)
+    se = 1 / np.sqrt(n - 3)
+    
+    # Confidence interval in the z-space
+    z_critical = np.abs(t.ppf(alpha / 2, df=n - 2))
+    ci_lower_z = fisher_z - z_critical * se
+    ci_upper_z = fisher_z + z_critical * se
+    
+    # Transform back to r-space
+    ci_lower = np.tanh(ci_lower_z)
+    ci_upper = np.tanh(ci_upper_z)
+    
+    return ci_lower, ci_upper
+
+# Calculate the Pearson correlation coefficient
+data = pd.read_csv(file_path)
+r, _ = pearsonr(data[column_x].dropna(), data[column_y].dropna())
+n = len(data.dropna())
+
+# Calculate the confidence interval
+ci_lower, ci_upper = calculate_confidence_interval(r, n)
+print(f"Pearson correlation coefficient: {r}")
+print(f"95% confidence interval: [{ci_lower}, {ci_upper}]")
+#%%
