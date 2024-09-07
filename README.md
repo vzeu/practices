@@ -1,6 +1,5 @@
 # Practices
 Main figure
-![Main_figure_VZ]
 ![Main_figure_VZ](https://github.com/user-attachments/assets/244c1e11-4b4f-4f86-876d-83488c7836f5)
 
 
