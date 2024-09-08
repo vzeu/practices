@@ -8,4 +8,4 @@ Sholl analysis GIF
 ![Sholl_analysis_VZ](https://github.com/user-attachments/assets/dfcd4c07-b60e-4b29-9249-1ebc21d23698)
 
 Confocal and multiphoton image
-![Confocal_and_2-photon_VZ](https://github.com/user-attachments/assets/2f21bcdd-ba28-42c5-908a-c7d51bdb3cd6)
+![Confocal_and_2-photon_VZ](https://github.com/user-attachments/assets/7fabc059-31cf-46a4-ac9d-72b9f10774e9)
